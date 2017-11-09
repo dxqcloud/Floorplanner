@@ -39,6 +39,26 @@ Node* Floorplanner::sizeNodes(Node& nodeA, Node& nodeB, int cutType) {
 	}
 	if(cutType == Node::HORIZONTAL_CUT){
 		parent = new Node(Node::HORIZONTAL_CUT, &nodeA, &nodeB);
+		//Delete old parent node and remove from container
+		if (nodeA.getParent() == nodeB.getParent()) {
+			if (nodeA.getParent() != NULL && nodes.find(nodeA.getParent()->getId()) != nodes.end()) {
+				nodes.erase(nodes.find(nodeA.getParent()->getId()));
+				delete nodeA.getParent();
+			}
+		}
+		/*else {
+			if (nodeA.getParent() != NULL && nodes.find(nodeA.getParent()->getId()) != nodes.end()) {
+				nodes.erase(nodes.find(nodeA.getParent()->getId()));
+				delete nodeA.getParent();
+			}
+			if (nodeB.getParent() != NULL && nodes.find(nodeB.getParent()->getId()) != nodes.end()) {
+				nodes.erase(nodes.find(nodeB.getParent()->getId()));
+				delete nodeB.getParent();
+			}
+		}*/
+		//set new parents to child nodes
+		nodeA.setParent(parent);
+		nodeB.setParent(parent);
 		double length = max(nodeA.getOptimumSize().getLength(),nodeB.getOptimumSize().getLength());
 		double width = nodeA.getOptimumSize().getWidth()+nodeB.getOptimumSize().getWidth();
 		Size s(length,width);
@@ -48,6 +68,26 @@ Node* Floorplanner::sizeNodes(Node& nodeA, Node& nodeB, int cutType) {
 	}else
 	if(cutType == Node::VERTICAL_CUT){
 		parent = new Node(Node::VERTICAL_CUT, &nodeA, &nodeB);
+		//Delete old parents of child nodes from heap as well as container
+		if (nodeA.getParent() == nodeB.getParent()) {
+			if (nodeA.getParent() != NULL && nodes.find(nodeA.getParent()->getId()) != nodes.end()) {
+				nodes.erase(nodes.find(nodeA.getParent()->getId()));
+				delete nodeA.getParent();
+			}
+		}
+		/*else {
+			if (nodeA.getParent() != NULL && nodes.find(nodeA.getParent()->getId()) != nodes.end()) {
+				nodes.erase(nodes.find(nodeA.getParent()->getId()));
+				delete nodeA.getParent();
+			}
+			if (nodeB.getParent() != NULL && nodes.find(nodeB.getParent()->getId()) != nodes.end()) {
+				nodes.erase(nodes.find(nodeB.getParent()->getId()));
+				delete nodeB.getParent();
+			}
+		}*/
+		//Set new parents
+		nodeA.setParent(parent);
+		nodeB.setParent(parent);
 		double length = nodeA.getOptimumSize().getLength()+nodeB.getOptimumSize().getLength();
 		double width = max(nodeA.getOptimumSize().getWidth(),nodeB.getOptimumSize().getWidth());
 		Size s(length,width);
@@ -203,13 +243,14 @@ vector<string> Floorplanner::move(vector<string> currentPolish) {
 //Returns new temperature
 double Floorplanner::coolDown(double temperature) {
 	return temperature*FloorplannerConstants::getInstance().getCoolDownRate();
+	//return exp(-1*temperature*FloorplannerConstants::getInstance().getCoolDownRate());
 }
 
 //Simulated Annealing performed here
 void Floorplanner::floorplan() {
 	vector<string> currentExpression = generateInitialExpression();
 	double temperature = FloorplannerConstants::getInstance().getStartTemp();
-	Node* root;
+	Node* root = NULL;
 	double delCost, newCost, currentCost;
 	currentCost = computeCost(polishToTree(currentExpression));
 	//cout << "Orignal Cost:" << currentCost<<endl;
@@ -228,7 +269,28 @@ void Floorplanner::floorplan() {
 		}
 		temperature = coolDown(temperature);
 	}
-	cout << computeCost(polishToTree(currentExpression))<<endl;
+	root = polishToTree(currentExpression);
+	cout << computeCost(root)<<endl;
+	//Compute co-ordinates
+	if (root != NULL) {
+		root->setLLCord(pair<double, double>(0, 0));
+		root->setURCord(pair<double, double>(root->getOptimumSize().getLength(), root->getOptimumSize().getWidth()));
+		processCords(root);
+		//Clean data in container
+		int size = nodes.size();
+		int i = 0;
+		// erase all odd numbers from c
+		for (auto it = nodes.begin(); it != nodes.end(); )
+			if (!it->second->isEndNode())
+				it = nodes.erase(it);
+			else
+				++it;
+	}
+	else {
+		//TODO: Throw exception
+		cout << "ERROR: Null root found.";
+	}
+
 }
 
 //Prints sizing of all the nodes in the tree
@@ -236,6 +298,11 @@ void Floorplanner::printNodes(){
 	for(auto it = this->nodes.begin(); it != this->nodes.end(); ++it){
 		cout<<"ID:\t"<<it->first<<" Length:\t"<<it->second->getOptimumSize().getLength()<<" Width:\t"<<it->second->getOptimumSize().getWidth()<<endl;
 	}
+}
+
+unordered_map<string, Node*> Floorplanner::getNodes()
+{
+	return nodes;
 }
 
 //Function currently generates initial expression of the form AB|C-D|E-F|G|
@@ -265,4 +332,27 @@ vector<string> Floorplanner::generateInitialExpression(){
 		}
 	}
 	return expression;
+}
+
+//Function to find and set co-ordinates
+void Floorplanner::processCords(Node* root) {
+	if (root->isEndNode()) {
+		return;
+	}
+	else {
+		Node* left = root->getLeft();
+		Node* right = root->getRight();
+		left->setLLCord(root->getLLCord());
+		right->setURCord(root->getURCord());
+		if (root->getCutType() == Node::HORIZONTAL_CUT) {
+			left->setURCord(pair<double,double>(root->getURCord().first, root->getLLCord().second+left->getOptimumSize().getWidth()));
+			right->setLLCord(pair<double, double>(root->getLLCord().first,root->getLLCord().second+left->getOptimumSize().getWidth()));
+		}
+		if (root->getCutType() == Node::VERTICAL_CUT) {
+			left->setURCord(pair<double,double>(root->getLLCord().first,root->getLLCord().second+left->getOptimumSize().getLength()));
+			right->setLLCord(pair<double, double>(root->getURCord().first - right->getOptimumSize().getLength(), root->getLLCord().second));
+		}
+	}
+	processCords(root->getLeft());
+	processCords(root->getRight());
 }

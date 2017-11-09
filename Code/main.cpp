@@ -28,5 +28,6 @@ void unitTest() {
 	list<Node> data = IOUtilites::getInstance().readData();
 	Floorplanner myPlanner(data);
 	myPlanner.floorplan();
+	IOUtilites::getInstance().writeData(myPlanner.getNodes());
 	//myPlanner.printNodes();
 }
